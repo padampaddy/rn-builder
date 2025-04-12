@@ -1,0 +1,15 @@
+build_version: "3.44.03"
+platform: "all"
+drive_folder_id: "YOUR_DRIVE_FOLDER_ID"
+skip_upload: false
+skip_deps: false
+apple_id: "${APPLE_ID}"
+team_id: "${TEAM_ID}"
+release_channel: "production"
+google_credentials: "path/to/credentials.json" # Or use GOOGLE_APPLICATION_CREDENTIALS env var
+
+android:
+  build_type: "release"
+
+ios:
+  enterprise: false
