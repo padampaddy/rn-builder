@@ -46,9 +46,11 @@ jobs:
 
     - name: Install Windows dependencies
       if: matrix.os == 'windows-latest'
+      shell: pwsh
       run: |
-        choco install mingw
-        refreshenv
+        choco install -y mingw
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        Write-Host "Updated PATH: $env:Path"
 
     - name: Build
       shell: bash
@@ -64,7 +66,11 @@ jobs:
         $env:CGO_ENABLED=1
         $env:GOOS="${{ matrix.goos }}"
         $env:CC="gcc"
-        $env:PATH="C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin;$env:PATH"
+        # Ensure MinGW is in the PATH
+        $env:Path = "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin;$env:Path"
+        Write-Host "gcc version:"
+        gcc --version
+        Write-Host "Building..."
         go build -tags gl -o ${{ matrix.output }}
         tar -czvf ${{ matrix.output }}.tar.gz ${{ matrix.output }}
 
