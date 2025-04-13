@@ -17,7 +17,7 @@ var guiApp fyne.App
 func main() {
 	guiApp = app.NewWithID("com.mps.rn_builder")
 	window := guiApp.NewWindow("React Native Builder")
-	window.Resize(fyne.NewSize(800, 600)) // Set a reasonable initial size
+	window.Resize(fyne.NewSize(800, 800)) // Set a reasonable initial size
 
 	// --- Create UI Widgets ---
 	// Root Path
@@ -87,7 +87,6 @@ func main() {
 	logEntry = widget.NewMultiLineEntry()
 	logEntry.Wrapping = fyne.TextWrapWord // Prevent wrapping for better log readability
 	logEntry.SetMinRowsVisible(15)        // Show a good amount of log lines
-	logWriter = NewLogWriter(&logBuffer)
 
 	// Build Button
 	buildButton := widget.NewButton("Run Build", nil) // OnTapped set later
@@ -202,7 +201,11 @@ func main() {
 	// Combine sections
 	settings := container.NewVBox(form, androidSection, iosSection)
 	logContainer = container.NewScroll(logEntry) // Make log area scrollable
-
+	logWriter = NewLogWriter(&logBuffer)
+	logWriter.Write([]byte("Hello, World!"))
+	logWriter.Write([]byte("This is a log message."))
+	logWriter.Write([]byte("Another log message."))
+	logWriter.Write([]byte("Yet another log message."))
 	// Main layout: Settings | Build Button | Logs
 	content := container.NewBorder(
 		settings,     // Top
