@@ -23,6 +23,22 @@ jobs:
     - name: Install dependencies
       run: go mod tidy
 
+    - name: Install dependencies for Fyne
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev
+      if: runner.os == 'Linux'
+
+    - name: Install dependencies for Fyne on macOS
+      run: |
+        brew install gcc
+      if: runner.os == 'macOS'
+
+    - name: Install dependencies for Fyne on Windows
+      run: |
+        choco install mingw
+      if: runner.os == 'Windows'
+
     - name: Build for macOS
       run: GOOS=darwin GOARCH=amd64 go build -o rn-builder-macos
 
