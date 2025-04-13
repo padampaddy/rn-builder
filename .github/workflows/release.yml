@@ -7,7 +7,20 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            output: rn-builder-linux
+            goos: linux
+          - os: windows-latest
+            output: rn-builder-windows.exe
+            goos: windows
+          - os: macos-latest
+            output: rn-builder-macos
+            goos: darwin
+    
+    runs-on: ${{ matrix.os }}
 
     steps:
     - name: Checkout code
@@ -21,44 +34,42 @@ jobs:
     - name: Install dependencies
       run: go mod tidy
 
-    - name: Install dependencies for Fyne
+    - name: Install Linux dependencies
+      if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
         sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev
 
-    - name: Build for all platforms
+    - name: Install macOS dependencies
+      if: matrix.os == 'macos-latest'
+      run: brew install gcc
+
+    - name: Build
       run: |
-        # Linux build
-        GOOS=linux GOARCH=amd64 go build -o rn-builder-linux
-        tar -czvf rn-builder-linux.tar.gz rn-builder-linux
-        
-        # Windows build
-        GOOS=windows GOARCH=amd64 go build -o rn-builder-windows.exe
-        tar -czvf rn-builder-windows.tar.gz rn-builder-windows.exe
-        
-        # MacOS build
-        GOOS=darwin GOARCH=amd64 go build -o rn-builder-macos
-        tar -czvf rn-builder-macos.tar.gz rn-builder-macos
+        CGO_ENABLED=1 GOOS=${{ matrix.goos }} go build -tags gl -o ${{ matrix.output }}
+        tar -czvf ${{ matrix.output }}.tar.gz ${{ matrix.output }}
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.output }}
+        path: ${{ matrix.output }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
 
     - name: Create Release
-      id: create_release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          rn-builder-linux.tar.gz
-          rn-builder-windows.tar.gz
-          rn-builder-macos.tar.gz
+          */rn-builder-linux.tar.gz
+          */rn-builder-windows.exe.tar.gz
+          */rn-builder-macos.tar.gz
         draft: false
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    # Keeping artifacts as backup
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: rn-builder-artifacts
-        path: |
-          rn-builder-linux.tar.gz
-          rn-builder-windows.tar.gz
-          rn-builder-macos.tar.gz
