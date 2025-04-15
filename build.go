@@ -6,9 +6,47 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 )
+
+func updateEnvironmentConstant(config Config, branch string, logOutput io.Writer) error {
+	constantsFilePath := filepath.Join(config.RootPath, "src", "utils", "constants.js")
+	fmt.Fprintf(logOutput, "Updating environment constant in %s based on branch: %s\n", constantsFilePath, branch)
+
+	// Read the constants file
+	content, err := os.ReadFile(constantsFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to read constants file: %w", err)
+	}
+
+	// Determine the environment based on the branch
+	var environment string
+	switch branch {
+	case "main":
+		environment = "PROD"
+	case "staging":
+		environment = "STAGING"
+	default:
+		environment = "DEV"
+	}
+
+	// Replace the ENVIRONMENT constant
+	updatedContent := strings.ReplaceAll(
+		string(content),
+		`const ENVIRONMENT = "DEV";`, // Default assumption, adjust if needed
+		fmt.Sprintf(`const ENVIRONMENT = "%s";`, environment),
+	)
+
+	// Write the updated content back to the file
+	if err := os.WriteFile(constantsFilePath, []byte(updatedContent), 0644); err != nil {
+		return fmt.Errorf("failed to write updated constants file: %w", err)
+	}
+
+	fmt.Fprintf(logOutput, "Environment constant updated to %s successfully.\n", environment)
+	return nil
+}
 
 func runBuildProcess(config Config, logOutput io.Writer) error {
 	fmt.Fprintf(logOutput, "Starting build process for version %s...\n", config.BuildVersion)
@@ -29,6 +67,11 @@ func runBuildProcess(config Config, logOutput io.Writer) error {
 	}
 	isMainBranch := currentBranch == "main"
 	fmt.Fprintf(logOutput, "Git Branch: %s (Is Main: %t)\n", currentBranch, isMainBranch)
+
+	// Update environment constant
+	if err := updateEnvironmentConstant(config, currentBranch, logOutput); err != nil {
+		return fmt.Errorf("error updating environment constant: %w", err)
+	}
 
 	// Install dependencies if not skipped
 	if !config.SkipDeps {
@@ -145,6 +188,31 @@ func buildAndroidGUI(config Config, buildNumber int, isMainBranch bool, logOutpu
 		return "", fmt.Errorf("expo prebuild failed: %w", err)
 	}
 
+	// --- Update Build Number and Version Name in build.gradle ---
+	fmt.Fprintln(logOutput, "Updating build number and version name in build.gradle...")
+	buildGradlePath := filepath.Join(config.RootPath, "android", "app", "build.gradle")
+	buildGradleContent, err := os.ReadFile(buildGradlePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read build.gradle: %w", err)
+	}
+
+	updatedContent := strings.ReplaceAll(
+		string(buildGradleContent),
+		"versionCode 1", // Replace this with a more robust regex or logic if needed
+		fmt.Sprintf("versionCode %d", buildNumber),
+	)
+
+	updatedContent = strings.ReplaceAll(
+		updatedContent,
+		`versionName "1.0"`, // Replace this with a more robust regex or logic if needed
+		fmt.Sprintf(`versionName "%s"`, config.BuildVersion),
+	)
+
+	if err := os.WriteFile(buildGradlePath, []byte(updatedContent), 0644); err != nil {
+		return "", fmt.Errorf("failed to update build.gradle: %w", err)
+	}
+	fmt.Fprintln(logOutput, "Build number and version name updated successfully.")
+
 	// --- Gradle Build ---
 	gradleTask := fmt.Sprintf("assemble%s", config.Android.BuildType)
 	fmt.Fprintf(logOutput, "Running Gradle task: %s\n", gradleTask)
@@ -208,10 +276,71 @@ func buildIOSGUI(config Config, buildNumber int, isMainBranch bool, logOutput io
 	if err := runCmd(logOutput, true, config.RootPath, expoCmd, prebuildArgs...); err != nil {
 		return "", fmt.Errorf("expo prebuild failed: %w", err)
 	}
+
+	// Update build number, version, app name, and package ID in Info.plist
+	fmt.Fprintln(logOutput, "Updating build number, version, app name, and package ID in Info.plist...")
+	infoPlistPath := filepath.Join(config.RootPath, "ios", config.IOS.ProjectName, "Info.plist")
+	infoPlistContent, err := os.ReadFile(infoPlistPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read Info.plist: %w", err)
+	}
+
+	// Determine app name and package ID based on branch
+	var appName, packageID string
+	currentBranch, err := getCurrentGitBranch(config.RootPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to determine git branch: %w", err)
+	}
+
+	switch currentBranch {
+	case "main":
+		appName = "Sunflow Installer"
+		packageID = "com.sunflow.installer.app"
+	case "staging":
+		appName = "Staging Sunflow Installer"
+		packageID = "com.sunflow.installer.app.ios.testing"
+	case "develop":
+		appName = "Dev Sunflow Installer"
+		packageID = "com.sunflow.installer.app.dev"
+	default:
+		appName = "Dev Sunflow Installer"
+		packageID = "com.sunflow.installer.app.dev"
+	}
+
+	reCFBundleVersion := regexp.MustCompile(`<key>CFBundleVersion</key>\s*<string>.*?</string>`)
+	updatedContent := reCFBundleVersion.ReplaceAllString(
+		string(infoPlistContent),
+		fmt.Sprintf("<key>CFBundleVersion</key>\n\t<string>%d</string>", buildNumber),
+	)
+
+	reCFBundleShortVersion := regexp.MustCompile(`<key>CFBundleShortVersionString</key>\s*<string>.*?</string>`)
+	updatedContent = reCFBundleShortVersion.ReplaceAllString(
+		updatedContent,
+		fmt.Sprintf("<key>CFBundleShortVersionString</key>\n\t<string>%s</string>", config.BuildVersion),
+	)
+
+	reCFBundleName := regexp.MustCompile(`<key>CFBundleName</key>\s*<string>.*?</string>`)
+	updatedContent = reCFBundleName.ReplaceAllString(
+		updatedContent,
+		fmt.Sprintf("<key>CFBundleName</key>\n\t<string>%s</string>", appName),
+	)
+
+	reCFBundleIdentifier := regexp.MustCompile(`<key>CFBundleIdentifier</key>\s*<string>.*?</string>`)
+	updatedContent = reCFBundleIdentifier.ReplaceAllString(
+		updatedContent,
+		fmt.Sprintf("<key>CFBundleIdentifier</key>\n\t<string>%s</string>", packageID),
+	)
+
+	if err := os.WriteFile(infoPlistPath, []byte(updatedContent), 0644); err != nil {
+		return "", fmt.Errorf("failed to update Info.plist: %w", err)
+	}
+	fmt.Fprintln(logOutput, "Build number, version, app name, and package ID updated successfully.")
+
 	workspace, scheme, err := findIOSWorkspaceAndScheme(&config)
 	if err != nil {
 		return "", fmt.Errorf("ios workspace error: %w", err)
 	}
+
 	// Archive
 	fmt.Fprintln(logOutput, "Running xcodebuild archive...")
 	archiveName := fmt.Sprintf("%s.xcarchive", scheme)

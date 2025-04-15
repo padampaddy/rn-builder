@@ -60,7 +60,6 @@ jobs:
       if: matrix.os != 'windows-latest'
       run: |
         CGO_ENABLED=1 GOOS=${{ matrix.goos }} go build -tags gl -o ${{ matrix.output }}
-        tar -czvf ${{ matrix.output }}.tar.gz ${{ matrix.output }}
 
     - name: Build Windows
       if: matrix.os == 'windows-latest'
@@ -75,13 +74,12 @@ jobs:
         gcc --version
         Write-Host "Building..."
         go build -tags gl -o ${{ matrix.output }}
-        tar -czvf ${{ matrix.output }}.tar.gz ${{ matrix.output }}
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.output }}
-        path: ${{ matrix.output }}.tar.gz
+        path: ${{ matrix.output }}
 
   release:
     needs: build
@@ -94,9 +92,9 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          */rn-builder-linux.tar.gz
-          */rn-builder-windows.exe.tar.gz
-          */rn-builder-macos.tar.gz
+          */rn-builder-linux
+          */rn-builder-windows.exe
+          */rn-builder-macos
         draft: false
         prerelease: false
       env:

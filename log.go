@@ -2,9 +2,13 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -18,111 +22,105 @@ var logContainer *container.Scroll // The scroll container holding the logEntry
 var lines []string                 // Slice to hold the lines currently displayed (limited size)
 const maxLogLines = 25             // Define the maximum number of lines to keep
 
-// LogWriter is a thread-safe writer for updating the GUI log
+// LogWriter is a thread-safe writer for updating both file and GUI log
 type LogWriter struct {
-	mu     sync.Mutex
-	writer io.Writer // Note: This writer field isn't actually used in the current Write impl.
+	mu       sync.Mutex
+	file     *os.File
+	logDir   string
+	filename string
 }
 
-// NewLogWriter creates a new LogWriter.
-// The provided io.Writer 'w' is stored but not directly used by the Write method below.
-// The Write method interacts with the global logBuffer instead.
-func NewLogWriter(w io.Writer) *LogWriter {
+// NewLogWriter creates a new LogWriter that writes to both file and GUI
+func NewLogWriter() (*LogWriter, error) {
+	// Create logs directory if it doesn't exist
+	logDir := "logs"
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create logs directory: %w", err)
+	}
+
+	// Create log file with timestamp
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	filename := fmt.Sprintf("build_%s.log", timestamp)
+	filepath := filepath.Join(logDir, filename)
+
+	file, err := os.Create(filepath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log file: %w", err)
+	}
+
 	// Initialize lines slice if it's nil
 	if lines == nil {
 		lines = make([]string, 0, maxLogLines)
 	}
-	return &LogWriter{writer: w}
+
+	return &LogWriter{
+		file:     file,
+		logDir:   logDir,
+		filename: filename,
+	}, nil
 }
 
-// Write processes incoming byte slices, extracts lines, updates the limited line buffer,
-// and schedules a GUI update to show only the latest lines and scroll to the bottom.
+// Write processes incoming byte slices, writes to file and updates GUI
 func (lw *LogWriter) Write(p []byte) (n int, err error) {
 	lw.mu.Lock()
 	defer lw.mu.Unlock()
 
-	// Add incoming data to the buffer
-	// We track the original number of bytes passed to Write
+	// Write to file first
+	if n, err = lw.file.Write(p); err != nil {
+		return n, fmt.Errorf("failed to write to log file: %w", err)
+	}
+	lw.file.Sync() // Ensure it's written to disk
+
+	// Add incoming data to the GUI buffer
 	originalLen := len(p)
-	_, err = logBuffer.Write(p)
-	if err != nil {
-		// Return 0 bytes written (as per io.Writer expectation on error) and the error
-		return 0, err
+	if _, err = logBuffer.Write(p); err != nil {
+		return originalLen, nil // Continue even if GUI buffer fails
 	}
 
+	// Process full lines from the buffer for GUI
 	linesAdded := false
-	// Process full lines from the buffer
 	for {
 		line, err := logBuffer.ReadString('\n')
 		if err != nil {
-			// If we encounter EOF, it means there's no complete line ending with '\n' left.
-			// The partial line remains in the buffer for the next Write call.
 			if err == io.EOF {
 				break
 			}
-			// Handle other potential read errors from the buffer if necessary.
-			// For now, we stop processing lines on error.
-			// Consider logging this error `log.Printf("Error reading from log buffer: %v", err)`
-			break // Stop processing lines on error
+			break
 		}
 
-		// We have a full line (including \n)
 		linesAdded = true
-		// Trim trailing newline characters for storage
 		processedLine := strings.TrimRight(line, "\r\n")
 
-		// Add the new line and enforce the maxLogLines limit
 		lines = append(lines, processedLine)
 		if len(lines) > maxLogLines {
-			// Remove the oldest line (from the beginning of the slice)
-			// This keeps the slice size at maxLogLines
 			lines = lines[1:]
 		}
 	}
 
-	// If we added any new lines, update the Fyne widget
+	// Update GUI if lines were added
 	if linesAdded {
-		// Reconstruct the text content from the currently kept lines
 		fullText := strings.Join(lines, "\n")
-
-		// Schedule the UI update to run on the main Fyne goroutine
 		fyne.Do(func() {
 			if logEntry != nil {
-				logEntry.SetText(fullText) // Replace the entire content
-				// logEntry.CursorColumn = 0 // Optionally move cursor if needed
-				// logEntry.CursorRow = len(lines) // Not reliable for scrolling
+				logEntry.SetText(fullText)
 			}
 			if logContainer != nil {
-				// Refresh the container to ensure layout is updated
 				logContainer.Refresh()
-				// *** Add this line to scroll to the bottom ***
 				logContainer.ScrollToBottom()
 			}
 		})
 	}
 
-	// Per io.Writer contract, return the number of bytes *accepted* from p.
-	// Since logBuffer.Write consumes all of p unless it returns an error,
-	// we return the original length if the buffer write was successful.
 	return originalLen, nil
 }
 
-// --- Helper function to initialize the log system (example) ---
-// You would call this during your app setup
-func setupLogViewer(logDisplay *widget.Entry, scrollArea *container.Scroll) io.Writer {
-	logEntry = logDisplay
-	logContainer = scrollArea
+// Close closes the log file
+func (lw *LogWriter) Close() error {
+	lw.mu.Lock()
+	defer lw.mu.Unlock()
 
-	// Make the log entry read-only and multi-line
-	logEntry.MultiLine = true
-	logEntry.Disable()
-	logEntry.Wrapping = fyne.TextWrapWord // Or TextWrapOff, TextWrapBreak
-	// logEntry.Disable() // Or use logEntry.ReadOnly = true in newer Fyne versions if available
-
-	// Create the log writer (passing logBuffer, though it's not directly used by NewLogWriter)
-	logWriter = NewLogWriter(&logBuffer) // The writer passed here isn't used by Write
-
-	// Return the logWriter so other parts of the app can write to it
-	// Example: log.SetOutput(logWriter)
-	return logWriter
+	if lw.file != nil {
+		return lw.file.Close()
+	}
+	return nil
 }

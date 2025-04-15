@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"runtime"
 
 	"fyne.io/fyne/v2"
@@ -14,14 +16,108 @@ import (
 
 var guiApp fyne.App
 
+// updateUIFromConfig updates all UI elements based on the provided config
+func updateUIFromConfig(config *Config, entries map[string]interface{}) {
+	if e, ok := entries["rootPath"].(*widget.Entry); ok {
+		e.SetText(config.RootPath)
+	}
+	if e, ok := entries["version"].(*widget.Entry); ok {
+		e.SetText(config.BuildVersion)
+	}
+	if r, ok := entries["platform"].(*widget.RadioGroup); ok {
+		r.SetSelected(config.Platform)
+	}
+	if c, ok := entries["skipUpload"].(*widget.Check); ok {
+		c.SetChecked(config.SkipUpload)
+	}
+	if c, ok := entries["skipDeps"].(*widget.Check); ok {
+		c.SetChecked(config.SkipDeps)
+	}
+	if e, ok := entries["androidBuildType"].(*widget.Entry); ok {
+		e.SetText(config.Android.BuildType)
+	}
+	if e, ok := entries["driveFolder"].(*widget.Entry); ok {
+		e.SetText(config.DriveFolderID)
+	}
+	if e, ok := entries["googleCreds"].(*widget.Entry); ok {
+		e.SetText(config.GoogleCredentials)
+	}
+	if c, ok := entries["iosEnterprise"].(*widget.Check); ok {
+		c.SetChecked(config.IOS.Enterprise)
+	}
+	if e, ok := entries["iosScheme"].(*widget.Entry); ok {
+		e.SetText(config.IOS.Scheme)
+	}
+	if e, ok := entries["iosProjectName"].(*widget.Entry); ok {
+		e.SetText(config.IOS.ProjectName)
+	}
+	if e, ok := entries["appleID"].(*widget.Entry); ok {
+		e.SetText(config.AppleID)
+	}
+	if e, ok := entries["teamID"].(*widget.Entry); ok {
+		e.SetText(config.TeamID)
+	}
+}
+
+// getConfigFromUI creates a Config struct from the current UI state
+func getConfigFromUI(entries map[string]interface{}) Config {
+	config := Config{}
+
+	if e, ok := entries["rootPath"].(*widget.Entry); ok {
+		config.RootPath = e.Text
+	}
+	if e, ok := entries["version"].(*widget.Entry); ok {
+		config.BuildVersion = e.Text
+	}
+	if r, ok := entries["platform"].(*widget.RadioGroup); ok {
+		config.Platform = r.Selected
+	}
+	if c, ok := entries["skipUpload"].(*widget.Check); ok {
+		config.SkipUpload = c.Checked
+	}
+	if c, ok := entries["skipDeps"].(*widget.Check); ok {
+		config.SkipDeps = c.Checked
+	}
+	if e, ok := entries["androidBuildType"].(*widget.Entry); ok {
+		config.Android.BuildType = e.Text
+	}
+	if e, ok := entries["driveFolder"].(*widget.Entry); ok {
+		config.DriveFolderID = e.Text
+	}
+	if e, ok := entries["googleCreds"].(*widget.Entry); ok {
+		config.GoogleCredentials = e.Text
+	}
+	if c, ok := entries["iosEnterprise"].(*widget.Check); ok {
+		config.IOS.Enterprise = c.Checked
+	}
+	if e, ok := entries["iosScheme"].(*widget.Entry); ok {
+		config.IOS.Scheme = e.Text
+	}
+	if e, ok := entries["iosProjectName"].(*widget.Entry); ok {
+		config.IOS.ProjectName = e.Text
+	}
+	if e, ok := entries["appleID"].(*widget.Entry); ok {
+		config.AppleID = e.Text
+	}
+	if e, ok := entries["teamID"].(*widget.Entry); ok {
+		config.TeamID = e.Text
+	}
+
+	return config
+}
+
 func main() {
 	guiApp = app.NewWithID("com.mps.rn_builder")
 	window := guiApp.NewWindow("React Native Builder")
 	window.Resize(fyne.NewSize(800, 800)) // Set a reasonable initial size
 
+	// Create a map to store UI elements for easy access
+	uiEntries := make(map[string]interface{})
+
 	// --- Create UI Widgets ---
 	// Root Path
 	rootPathEntry := widget.NewEntry()
+	uiEntries["rootPath"] = rootPathEntry
 	rootPathButton := widget.NewButton("Browse...", func() {
 		dialog.NewFolderOpen(func(reader fyne.ListableURI, err error) {
 			if err == nil && reader != nil {
@@ -32,6 +128,7 @@ func main() {
 
 	// Build Version
 	versionEntry := widget.NewEntry()
+	uiEntries["version"] = versionEntry
 	versionEntry.Validator = func(s string) error {
 		if !isValidVersion(s) { // Reuse your validation function
 			return fmt.Errorf("invalid format (e.g., 1.2.3)")
@@ -41,17 +138,23 @@ func main() {
 
 	// Platform
 	platformRadio := widget.NewRadioGroup([]string{"All", "Android", "iOS"}, nil)
+	uiEntries["platform"] = platformRadio
 	platformRadio.SetSelected("All") // Default selection
 
 	// Options
 	skipUploadCheck := widget.NewCheck("Skip Uploads", nil)
+	uiEntries["skipUpload"] = skipUploadCheck
 	skipDepsCheck := widget.NewCheck("Skip Dependencies", nil)
+	uiEntries["skipDeps"] = skipDepsCheck
 
 	// Android Specific
 	androidBuildTypeEntry := widget.NewEntry()
+	uiEntries["androidBuildType"] = androidBuildTypeEntry
 	androidBuildTypeEntry.SetText("Release") // Default
 	driveFolderEntry := widget.NewEntry()
+	uiEntries["driveFolder"] = driveFolderEntry
 	googleCredsEntry := widget.NewEntry()
+	uiEntries["googleCreds"] = googleCredsEntry
 	googleCredsButton := widget.NewButton("Browse...", func() {
 		dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 			if err == nil && reader != nil {
@@ -63,14 +166,58 @@ func main() {
 
 	// iOS Specific
 	iosEnterpriseCheck := widget.NewCheck("Enterprise Build (iOS)", nil)
+	uiEntries["iosEnterprise"] = iosEnterpriseCheck
 	iosSchemeEntry := widget.NewEntry()
+	uiEntries["iosScheme"] = iosSchemeEntry
 	iosSchemeEntry.PlaceHolder = "Optional: Auto-detected"
 	iosProjectNameEntry := widget.NewEntry()
+	uiEntries["iosProjectName"] = iosProjectNameEntry
 	iosProjectNameEntry.PlaceHolder = "Optional: Auto-detected"
 	appleIDEntry := widget.NewEntry()
+	uiEntries["appleID"] = appleIDEntry
 	appleIDEntry.PlaceHolder = "Apple ID (email)"
 	teamIDEntry := widget.NewEntry()
+	uiEntries["teamID"] = teamIDEntry
 	teamIDEntry.PlaceHolder = "Apple Team ID (Optional)"
+
+	// Config buttons
+	saveConfigButton := widget.NewButton("Save Config", func() {
+		config := getConfigFromUI(uiEntries)
+		configPath := filepath.Join(".", defaultConfig)
+		if err := config.SaveConfig(configPath); err != nil {
+			dialog.ShowError(fmt.Errorf("failed to save config: %w", err), window)
+			return
+		}
+		dialog.ShowInformation("Success", "Configuration saved successfully", window)
+	})
+
+	loadConfigButton := widget.NewButton("Load Config", func() {
+		configPath := filepath.Join(".", defaultConfig)
+		config, err := LoadConfig(configPath)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("failed to load config: %w", err), window)
+			return
+		}
+		updateUIFromConfig(config, uiEntries)
+		dialog.ShowInformation("Success", "Configuration loaded successfully", window)
+	})
+
+	clearConfigButton := widget.NewButton("Clear Config", func() {
+		dialog.ShowConfirm("Clear Config", "Are you sure you want to clear all settings?", func(ok bool) {
+			if ok {
+				// Create empty config to clear all fields
+				emptyConfig := &Config{
+					Platform: "All",
+					Android: struct {
+						BuildType string `yaml:"build_type"`
+					}{
+						BuildType: "Release",
+					},
+				}
+				updateUIFromConfig(emptyConfig, uiEntries)
+			}
+		}, window)
+	})
 
 	// Disable iOS fields if not on macOS
 	if runtime.GOOS != "darwin" {
@@ -81,6 +228,15 @@ func main() {
 		iosProjectNameEntry.Disable()
 		appleIDEntry.Disable()
 		teamIDEntry.Disable()
+	}
+
+	// Try to load existing config on startup
+	configPath := filepath.Join(".", defaultConfig)
+	if _, err := os.Stat(configPath); err == nil {
+		config, err := LoadConfig(configPath)
+		if err == nil {
+			updateUIFromConfig(config, uiEntries)
+		}
 	}
 
 	// Log Area
@@ -98,33 +254,7 @@ func main() {
 		buildButton.Disable()
 
 		// --- Gather Config from UI ---
-		// Load base config from file? Or just use UI values? For simplicity, use UI.
-		config := Config{
-			RootPath:     rootPathEntry.Text,
-			BuildVersion: versionEntry.Text,
-			Platform:     platformRadio.Selected,
-			SkipUpload:   skipUploadCheck.Checked,
-			SkipDeps:     skipDepsCheck.Checked,
-			Android: struct {
-				BuildType string `yaml:"build_type"`
-			}{
-				BuildType: androidBuildTypeEntry.Text,
-			},
-			IOS: struct {
-				Enterprise  bool   `yaml:"enterprise"`
-				Scheme      string `yaml:"scheme"`
-				ProjectName string `yaml:"project_name"`
-			}{
-				Enterprise:  iosEnterpriseCheck.Checked,
-				Scheme:      iosSchemeEntry.Text,
-				ProjectName: iosProjectNameEntry.Text,
-			},
-			DriveFolderID:     driveFolderEntry.Text,
-			GoogleCredentials: googleCredsEntry.Text,
-			AppleID:           appleIDEntry.Text,
-			TeamID:            teamIDEntry.Text,
-			// ReleaseChannel might be needed if prebuild uses it, add field if necessary
-		}
+		config := getConfigFromUI(uiEntries)
 
 		// Basic Validation
 		if err := versionEntry.Validate(); err != nil {
@@ -198,14 +328,32 @@ func main() {
 		iosSection.Hide() // Hide iOS section if not on macOS
 	}
 
+	// Config Buttons container
+	configButtons := container.NewHBox(
+		saveConfigButton,
+		loadConfigButton,
+		clearConfigButton,
+	)
+
 	// Combine sections
-	settings := container.NewVBox(form, androidSection, iosSection)
+	settings := container.NewVBox(
+		configButtons,
+		form,
+		androidSection,
+		iosSection,
+	)
+
 	logContainer = container.NewScroll(logEntry) // Make log area scrollable
-	logWriter = NewLogWriter(&logBuffer)
-	logWriter.Write([]byte("Hello, World!"))
-	logWriter.Write([]byte("This is a log message."))
-	logWriter.Write([]byte("Another log message."))
-	logWriter.Write([]byte("Yet another log message."))
+
+	// Initialize the log writer with file output
+	var err error
+	logWriter, err = NewLogWriter()
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("failed to initialize logging: %w", err), window)
+		return
+	}
+	defer logWriter.Close() // Ensure log file is closed when application exits
+
 	// Main layout: Settings | Build Button | Logs
 	content := container.NewBorder(
 		settings,     // Top
